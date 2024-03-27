@@ -1,8 +1,8 @@
 """Sequence and its related classes."""
 import copy
 import enum
+import msgspec
 from typing import Dict, List, Optional, Union
-
 from vllm.block import LogicalTokenBlock
 from vllm.sampling_params import SamplingParams
 
@@ -368,10 +368,12 @@ class SequenceOutput:
         parent_seq_id: int,
         output_token: int,
         logprobs: Dict[int, float],
+        probs,
     ) -> None:
         self.parent_seq_id = parent_seq_id
         self.output_token = output_token
         self.logprobs = logprobs
+        self.probs = probs
 
     def __repr__(self) -> str:
         return (f"SequenceOutput(parent_seq_id={self.parent_seq_id}, "
@@ -406,6 +408,16 @@ class SequenceGroupOutput:
             raise NotImplementedError()
         return (self.samples == other.samples
                 and self.prompt_logprobs == other.prompt_logprobs)
+
+
+class ExecuteModelData(msgspec.Struct, array_like=True, omit_defaults=True):
+    seq_group_metadata_list: List[SequenceGroupMetadata]
+    finished_request_ids_list: List[str]
+    blocks_to_swap_in: Dict[int, int]
+    blocks_to_swap_out: Dict[int, int]
+    blocks_to_copy: Dict[int, List[int]]
+    num_preallocated_slots: int
+    return_logits: bool = False
 
 
 # For each sequence group, we generate a list of SequenceOutput object,

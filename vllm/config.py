@@ -407,6 +407,101 @@ class SchedulerConfig:
                 f"({self.max_num_seqs}).")
 
 
+class MixtureConfig:
+    """Configuration for speculative decoding.
+
+    Args:
+        draft_model_config: ModelConfig for the draft model.
+        draft_parallel_config: ParallelConfig for the draft model.
+        num_speculative_tokens: The number of tokens to sample from the draft
+            model before scoring with the target model.
+    """
+
+    @staticmethod
+    def maybe_create_mixture_config(
+        target_model_config: ModelConfig,
+        target_parallel_config: ParallelConfig,
+        dtype: str,
+        mixin_model: Optional[str],
+        mixture_coef: Optional[float] = 0.5,
+        target_model_input_padding_size: Optional[int] = None,
+        mixin_model_input_padding_size: Optional[int] = None,
+    ) -> Optional["MixtureConfig"]:
+
+        if mixin_model is None:
+            return None
+
+        # TODO these should be provided as a top-level mixin model config.
+        revision = None
+        quantization = None
+        max_model_len = None
+        mixin_model_config = ModelConfig(
+            mixin_model, target_model_config.tokenizer,
+            target_model_config.tokenizer_mode,
+            target_model_config.trust_remote_code,
+            target_model_config.download_dir, target_model_config.load_format,
+            dtype, target_model_config.seed, revision,
+            target_model_config.tokenizer_revision, max_model_len,
+            quantization, #target_model_config.enable_cuda_graph,
+            #target_model_config.cuda_graph_max_context_len,
+            #target_model_config.cuda_graph_cache_size)
+        )
+
+        mixin_parallel_config = MixtureConfig.create_mixin_parallel_config(
+            target_parallel_config)
+
+        return MixtureConfig(
+            mixin_model_config,
+            mixin_parallel_config,
+            mixture_coef,
+            target_model_input_padding_size,
+            mixin_model_input_padding_size,
+        )
+
+    @staticmethod
+    def create_mixin_parallel_config(
+            target_parallel_config: ParallelConfig,
+    ) -> ParallelConfig:
+        """Create a parallel config for use by the mixin worker.
+        """
+        tp_size = target_parallel_config.tensor_parallel_size
+
+        mixin_parallel_config = ParallelConfig(
+            pipeline_parallel_size=target_parallel_config.
+            pipeline_parallel_size,
+            tensor_parallel_size=tp_size,
+            worker_use_ray=target_parallel_config.worker_use_ray,
+            max_parallel_loading_workers = target_parallel_config.max_parallel_loading_workers,
+            #disable_shared_memory=target_parallel_config.disable_shared_memory,
+            #num_tokenizer_actors=target_parallel_config.num_tokenizer_actors,
+            #tokenizer_actor_options=target_parallel_config.
+            #tokenizer_actor_options,
+            #ray_workers_use_nsight=target_parallel_config.
+            #ray_workers_use_nsight,
+        )
+
+        return mixin_parallel_config
+
+    def __init__(
+        self,
+        mixin_model_config: ModelConfig,
+        mixin_parallel_config: ParallelConfig,
+        mixture_coef: float,
+        target_model_input_padding_size: Optional[int],
+        mixin_model_input_padding_size: Optional[int],
+    ):
+        self.mixin_model_config = mixin_model_config
+        self.mixin_parallel_config = mixin_parallel_config
+        self.target_model_input_padding_size = target_model_input_padding_size
+        self.mixin_model_input_padding_size = mixin_model_input_padding_size
+        self.mixture_coef = mixture_coef
+        self._verify_args()
+
+    def _verify_args(self) -> None:
+        self.mixin_model_config.verify_with_parallel_config(
+            self.mixin_parallel_config)
+
+
 _STR_DTYPE_TO_TORCH_DTYPE = {
     "half": torch.float16,
     "float16": torch.float16,

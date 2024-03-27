@@ -4,11 +4,12 @@ from functools import partial
 from typing import TYPE_CHECKING, Any, Iterable, List, Optional, Tuple, Union
 
 from vllm.config import (CacheConfig, ModelConfig, ParallelConfig,
-                         SchedulerConfig)
+                         SchedulerConfig, MixtureConfig)
 from vllm.core.scheduler import Scheduler, SchedulerOutputs
 from vllm.engine.arg_utils import EngineArgs
 from vllm.engine.metrics import record_metrics
 from vllm.engine.ray_utils import RayWorkerVllm, initialize_cluster, ray
+from vllm.worker.base_worker import BaseWorker, BaseLoraWorker
 from vllm.logger import init_logger
 from vllm.outputs import RequestOutput
 from vllm.sampling_params import SamplingParams
@@ -66,6 +67,7 @@ class LLMEngine:
         cache_config: CacheConfig,
         parallel_config: ParallelConfig,
         scheduler_config: SchedulerConfig,
+        mixture_config: MixtureConfig,
         distributed_init_method: str,
         placement_group: Optional["PlacementGroup"],
         log_stats: bool,
@@ -92,6 +94,7 @@ class LLMEngine:
         self.cache_config = cache_config
         self.parallel_config = parallel_config
         self.scheduler_config = scheduler_config
+        self.mixture_config = mixture_config
         self.log_stats = log_stats
         self._verify_args()
 
@@ -122,23 +125,59 @@ class LLMEngine:
         # List of (timestamp, num_tokens)
         self.num_generation_tokens: List[Tuple[float, int]] = []
 
+
+    def _create_worker(
+            self, rank: Optional[int],
+            distributed_init_method: Optional[str]) -> BaseLoraWorker:
+        # Lazy import the Worker classes to avoid importing torch.cuda/xformers
+        # before CUDA_VISIBLE_DEVICES is set in the Worker
+        from vllm.worker.worker import Worker  # pylint: disable=import-outside-toplevel
+        from vllm.worker.mix_worker import LogitMixWorker  # pylint: disable=import-outside-toplevel
+
+        if not self.mixture_config:
+            return Worker(
+                self.model_config,
+                self.parallel_config,
+                self.scheduler_config,
+                rank,
+                distributed_init_method,
+            )
+
+        target_worker = Worker(
+            self.model_config,
+            self.parallel_config,
+            self.scheduler_config,
+            rank,
+            distributed_init_method,
+        )
+
+        draft_worker = Worker(
+            self.mixture_config.mixin_model_config,
+            self.mixture_config.mixin_parallel_config,
+            self.scheduler_config,
+            rank,
+            distributed_init_method,
+            should_init_distributed=False
+        )
+        return LogitMixWorker.from_workers(
+            draft_worker,
+            target_worker,
+            mixture_coef=self.mixture_config.mixture_coef
+        )
+
     def _init_workers(self, distributed_init_method: str):
         # Lazy import the Worker to avoid importing torch.cuda/xformers
         # before CUDA_VISIBLE_DEVICES is set in the Worker
         from vllm.worker.worker import Worker
+        from vllm.worker.mix_worker import LogitMixWorker
 
         assert self.parallel_config.world_size == 1, (
             "Ray is required if parallel_config.world_size > 1.")
+        rank = 0
+        self.workers: List[BaseLoraWorker] = [
+            self._create_worker(rank, distributed_init_method)
+        ]
 
-        self.workers: List[Worker] = []
-        worker = Worker(
-            self.model_config,
-            self.parallel_config,
-            self.scheduler_config,
-            0,
-            distributed_init_method,
-        )
-        self.workers.append(worker)
         self._run_workers(
             "init_model",
             get_all_outputs=True,
@@ -181,13 +220,8 @@ class LLMEngine:
         scheduler_config = copy.deepcopy(self.scheduler_config)
         self._run_workers("init_worker",
                           get_all_outputs=True,
-                          worker_init_fn=lambda: Worker(
-                              model_config,
-                              parallel_config,
-                              scheduler_config,
-                              None,
-                              None,
-                          ))
+                          worker_init_fn=partial(self._create_worker, rank=None, distributed_init_method=None)
+                          )
         self._run_workers(
             "init_model",
             get_all_outputs=True,

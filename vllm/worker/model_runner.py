@@ -54,6 +54,7 @@ class ModelRunner:
         self.graph_block_tables = None  # Set after initial profiling.
 
     def load_model(self) -> None:
+        print(f"get model from config {self.model_config.model}")
         self.model = get_model(self.model_config)
 
     def set_block_size(self, block_size: int) -> None:

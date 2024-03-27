@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 
 from vllm.config import (CacheConfig, ModelConfig, ParallelConfig,
-                         SchedulerConfig)
+                         SchedulerConfig, MixtureConfig)
 
 
 @dataclass
@@ -35,6 +35,10 @@ class EngineArgs:
     quantization: Optional[str] = None
     enforce_eager: bool = False
     max_context_len_to_capture: int = 8192
+    mixin_model: Optional[str] = None
+    mixture_coef: float = 0.5
+    target_model_input_padding_size: Optional[int] = None
+    mixin_model_input_padding_size: Optional[int] = None
 
     def __post_init__(self):
         if self.tokenizer is None:
@@ -212,7 +216,7 @@ class EngineArgs:
 
     def create_engine_configs(
         self,
-    ) -> Tuple[ModelConfig, CacheConfig, ParallelConfig, SchedulerConfig]:
+    ) -> Tuple[ModelConfig, CacheConfig, ParallelConfig, SchedulerConfig, MixtureConfig]:
         model_config = ModelConfig(self.model, self.tokenizer,
                                    self.tokenizer_mode, self.trust_remote_code,
                                    self.download_dir, self.load_format,
@@ -232,7 +236,18 @@ class EngineArgs:
                                            self.max_num_seqs,
                                            model_config.max_model_len,
                                            self.max_paddings)
-        return model_config, cache_config, parallel_config, scheduler_config
+
+        mixture_config = MixtureConfig.maybe_create_mixture_config(
+            model_config,
+            parallel_config,
+            self.dtype,
+            mixin_model=self.mixin_model,
+            mixture_coef=self.mixture_coef,
+            target_model_input_padding_size=self.target_model_input_padding_size,
+            mixin_model_input_padding_size=self.mixin_model_input_padding_size
+        )
+
+        return model_config, cache_config, parallel_config, scheduler_config, mixture_config
 
 
 @dataclass

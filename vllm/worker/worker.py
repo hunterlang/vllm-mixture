@@ -30,12 +30,14 @@ class Worker:
         scheduler_config: SchedulerConfig,
         rank: Optional[int] = None,
         distributed_init_method: Optional[str] = None,
+        should_init_distributed: Optional[bool] = True,
     ) -> None:
         self.model_config = model_config
         self.parallel_config = parallel_config
         self.scheduler_config = scheduler_config
         self.rank = rank
         self.distributed_init_method = distributed_init_method
+        self.should_init_distributed = should_init_distributed
 
         self.model_runner = ModelRunner(model_config, parallel_config,
                                         scheduler_config)
@@ -69,8 +71,9 @@ class Worker:
         _check_if_gpu_supports_dtype(self.model_config.dtype)
 
         # Initialize the distributed environment.
-        _init_distributed_environment(self.parallel_config, self.rank,
-                                      self.distributed_init_method)
+        if self.should_init_distributed:
+            _init_distributed_environment(self.parallel_config, self.rank,
+                                          self.distributed_init_method)
 
         # Initialize the model.
         set_random_seed(self.model_config.seed)
