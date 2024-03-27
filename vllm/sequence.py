@@ -2,6 +2,7 @@
 import copy
 import enum
 import msgspec
+import torch
 from typing import Dict, List, Optional, Union
 from vllm.block import LogicalTokenBlock
 from vllm.sampling_params import SamplingParams
@@ -422,4 +423,16 @@ class ExecuteModelData(msgspec.Struct, array_like=True, omit_defaults=True):
 
 # For each sequence group, we generate a list of SequenceOutput object,
 # each of which contains one possible candidate for the next token.
-SamplerOutput = List[SequenceGroupOutput]
+#SamplerOutput = List[SequenceGroupOutput]
+
+class SamplerOutput:
+    def __init__(self, l: List[SequenceGroupOutput], probs: Optional[torch.Tensor] = None):
+        self.l = l
+        self.probs = probs
+
+    def __index__(self, idx):
+        return self.l[idx]
+    def __eq__(self, other):
+        return self.l == other.l
+    def __iter__(self):
+        return iter(self.l)

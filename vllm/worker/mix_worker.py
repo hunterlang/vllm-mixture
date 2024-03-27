@@ -84,7 +84,10 @@ class LogitMixWorker(BaseWorker):
 
         self._configure_samplers()
         vocab_size = self._vocab_size
-        self.mixture_sampler = MixtureSampler(vocab_size=vocab_size, mixture_coef=self.mixture_coef)
+        self.mixture_sampler = MixtureSampler(
+            vocab_size=vocab_size,
+            mixture_coef=self.mixture_coef
+        )
         print(f"loaded models, mixture = {1-self.mixture_coef} * {self.target_worker.model_runner.model_config.model} + {self.mixture_coef} * {self.draft_worker.model_runner.model_config.model}")
 
     def warm_up_model(self):
@@ -268,8 +271,8 @@ class LogitMixWorker(BaseWorker):
         sampling_metadata = self.target_worker.model_runner._prepare_sample(seq_group_metadata_list,
                                                  input_metadata.prompt_lens)
 
-        probs1 = torch.stack([to.samples[0].probs for to in target_sampler_output])
-        probs2 = torch.stack([do.samples[0].probs for do in draft_sampler_output])
+        probs1 = target_sampler_output.probs#torch.stack([to.samples[0].probs for to in target_sampler_output])
+        probs2 = draft_sampler_output.probs#torch.stack([do.samples[0].probs for do in draft_sampler_output])
         outputs = self.mixture_sampler(probs1, probs2, sampling_metadata=sampling_metadata)
 
         # todo: i think this is supposed to be batched

@@ -8,9 +8,7 @@ prompts = [
 ] * 20000
 sampling_params = SamplingParams(temperature=0., top_p=0.95)
 
-#llm = LLM(model="mistralai/Mixtral-8x7B-Instruct-v0.1", mixin_model="mistralai/Mistral-7B-v0.1", mixture_coef=0.1, tensor_parallel_size=2)
-#llm = LLM(model="facebook/opt-2.7b", mixin_model="facebook/opt-125m", mixture_coef=0.1)#, tensor_parallel_size=2)
-llm = LLM(model="facebook/opt-2.7b")#, tensor_parallel_size=2)
+llm = LLM(model="mistralai/Mixtral-8x7B-Instruct-v0.1", mixin_model="mistralai/Mistral-7B-v0.1", mixture_coef=0.1, tensor_parallel_size=2)
 outputs = llm.generate(prompts, sampling_params)
 
 # Print the outputs.

@@ -36,8 +36,10 @@ class MixtureSampler(nn.Module):
         # Get the logprobs query results.
         prompt_logprobs, sample_logprobs = _get_logprobs(
             logprobs, sampling_metadata, sample_results)
+
+        # now don't include the probs in the built sampler outputs
         return _build_sampler_output(sample_results, sampling_metadata,
-                                     prompt_logprobs, sample_logprobs, probs)
+                                     prompt_logprobs, sample_logprobs, None)
 
 
 class Sampler(nn.Module):
@@ -120,6 +122,10 @@ class Sampler(nn.Module):
         # Get the logprobs query results.
         prompt_logprobs, sample_logprobs = _get_logprobs(
             logprobs, sampling_metadata, sample_results)
+
+        if not self.include_gpu_probs_tensor:
+            probs = None
+
         return _build_sampler_output(sample_results, sampling_metadata,
                                      prompt_logprobs, sample_logprobs, probs)
 
@@ -593,9 +599,9 @@ def _build_sampler_output(
     sampler_output = []
 
     for (seq_group, sample_result, group_prompt_logprobs,
-         group_sample_logprobs, group_all_probs) in zip(sampling_metadata.seq_groups,
+         group_sample_logprobs) in zip(sampling_metadata.seq_groups,
                                        sample_results, prompt_logprobs,
-                                       sample_logprobs, all_probs):
+                                       sample_logprobs):
         seq_ids, _ = seq_group
         next_token_ids, parent_ids = sample_result
         seq_outputs = []
@@ -603,7 +609,9 @@ def _build_sampler_output(
                                                       next_token_ids,
                                                       group_sample_logprobs):
             seq_outputs.append(
-                SequenceOutput(seq_ids[parent_id], next_token_id, logprobs, group_all_probs))
+                SequenceOutput(seq_ids[parent_id], next_token_id, logprobs, None))
         sampler_output.append(
             SequenceGroupOutput(seq_outputs, group_prompt_logprobs))
-    return sampler_output
+
+    output = SamplerOutput(sampler_output, probs=all_probs)
+    return output
