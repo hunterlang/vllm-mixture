@@ -66,10 +66,6 @@ class CoLLMSampler(nn.Module):
         asst_logits = logits2
 
         mask = defer_prob > self.threshold
-        print('----')
-        print(base_logits.shape)
-        print(asst_logits.shape)
-        print(defer_prob.shape)
 
         # if mask = 1, pick asst; mask=0, pick base
         logits = torch.where(mask.unsqueeze(1), asst_logits, base_logits)
