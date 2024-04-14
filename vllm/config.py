@@ -502,6 +502,103 @@ class MixtureConfig:
             self.mixin_parallel_config)
 
 
+
+class CoLLMConfig:
+    """Configuration for joint decoding with Co-LLM
+
+    Args:
+        base_model_config: ModelConfig for the base model.
+        asst_model_config: ModelConfig for the asst model.
+        asst_parallel_config: ParallelConfig for the asst model (we assume asst model is the bigger one)
+        threshold: float threshold value for deferral
+    """
+
+    @staticmethod
+    def maybe_create_collm_config(
+        base_model_config: ModelConfig,
+        asst_parallel_config: ParallelConfig,
+        dtype: str,
+        asst_model: Optional[str],            
+        threshold: Optional[float] = 0.5,
+        base_model_input_padding_size: Optional[int] = None,
+        asst_model_input_padding_size: Optional[int] = None,
+    ) -> Optional["CoLLMConfig"]:
+
+        if asst_model is None:
+            return None
+
+        revision = None
+        quantization = None
+        max_model_len = None
+        asst_model_config = ModelConfig(
+            asst_model, base_model_config.tokenizer,
+            base_model_config.tokenizer_mode,
+            base_model_config.trust_remote_code,
+            base_model_config.download_dir, base_model_config.load_format,
+            dtype, base_model_config.seed, revision,
+            base_model_config.tokenizer_revision, max_model_len,
+            quantization, #target_model_config.enable_cuda_graph,
+            #target_model_config.cuda_graph_max_context_len,
+            #target_model_config.cuda_graph_cache_size)
+        )
+
+        asst_parallel_config = CoLLMConfig.create_asst_parallel_config(
+            asst_parallel_config)
+
+        return CoLLMConfig(
+            asst_model_config,
+            asst_parallel_config,
+            threshold,
+            base_model_input_padding_size,
+            asst_model_input_padding_size,
+        )
+
+    @staticmethod
+    def create_asst_parallel_config(
+            base_parallel_config: ParallelConfig,
+    ) -> ParallelConfig:
+        """Create a parallel config for use by the asst worker.
+        """
+        tp_size = base_parallel_config.tensor_parallel_size
+
+        asst_parallel_config = ParallelConfig(
+            pipeline_parallel_size=base_parallel_config.
+            pipeline_parallel_size,
+            tensor_parallel_size=tp_size,
+            worker_use_ray=base_parallel_config.worker_use_ray,
+            max_parallel_loading_workers = base_parallel_config.max_parallel_loading_workers,
+            #disable_shared_memory=base_parallel_config.disable_shared_memory,
+            #num_tokenizer_actors=base_parallel_config.num_tokenizer_actors,
+            #tokenizer_actor_options=base_parallel_config.
+            #tokenizer_actor_options,
+            #ray_workers_use_nsight=base_parallel_config.
+            #ray_workers_use_nsight,
+        )
+
+        return asst_parallel_config
+
+    def __init__(
+        self,
+        asst_model_config: ModelConfig,
+        asst_parallel_config: ParallelConfig,
+        threshold: float,
+        base_model_input_padding_size: Optional[int],
+        asst_model_input_padding_size: Optional[int],
+    ):
+        self.asst_model_config = asst_model_config
+        self.asst_parallel_config = asst_parallel_config
+        self.base_model_input_padding_size = base_model_input_padding_size
+        self.asst_model_input_padding_size = asst_model_input_padding_size
+        self.threshold = threshold
+        self._verify_args()
+
+        # mixin --> asst
+        # target --> base
+    def _verify_args(self) -> None:
+        self.asst_model_config.verify_with_parallel_config(
+            self.asst_parallel_config)
+
+
 _STR_DTYPE_TO_TORCH_DTYPE = {
     "half": torch.float16,
     "float16": torch.float16,

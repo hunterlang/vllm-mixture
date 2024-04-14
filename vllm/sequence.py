@@ -426,9 +426,10 @@ class ExecuteModelData(msgspec.Struct, array_like=True, omit_defaults=True):
 #SamplerOutput = List[SequenceGroupOutput]
 
 class SamplerOutput:
-    def __init__(self, l: List[SequenceGroupOutput], probs: Optional[torch.Tensor] = None):
+    def __init__(self, l: List[SequenceGroupOutput], probs: Optional[torch.Tensor] = None, logits: Optional[torch.Tensor] = None):
         self.l = l
         self.probs = probs
+        self.logits = logits
 
     def __index__(self, idx):
         return self.l[idx]

@@ -42,6 +42,52 @@ class MixtureSampler(nn.Module):
                                      prompt_logprobs, sample_logprobs, None)
 
 
+class CoLLMSampler(nn.Module):
+    def __init__(self, vocab_size: int, threshold: float = 0.5) -> None:
+        super().__init__()
+        self.vocab_size = vocab_size
+        self._copy_stream: torch.cuda.Stream = torch.cuda.Stream()
+        self.threshold = threshold
+    def forward(
+            self,
+            logits1,
+            logits2,
+            sampling_metadata: SamplingMetadata,
+    ):
+        with torch.cuda.stream(self._copy_stream):
+            (sampling_tensors, do_penalties, do_top_p_top_k,
+             do_min_p) = SamplingTensors.from_sampling_metadata(
+                 sampling_metadata, self.vocab_size, logits1.device, logits1.dtype)
+
+        defer_logits = logits1[:,-1]
+        defer_prob = torch.sigmoid(defer_logits)
+
+        base_logits = logits1[:,:-2] # last tok is defer, 2nd-to-last is pad
+        asst_logits = logits2
+
+        mask = defer_prob > self.threshold
+        print('----')
+        print(base_logits.shape)
+        print(asst_logits.shape)
+        print(defer_prob.shape)
+
+        # if mask = 1, pick asst; mask=0, pick base
+        logits = torch.where(mask.unsqueeze(1), asst_logits, base_logits)
+
+        logprobs = torch.log_softmax(logits, dim=-1, dtype=torch.float)
+        probs = torch.softmax(logits, dim=-1, dtype=torch.float)
+
+        sample_results = _sample(probs, logprobs, sampling_metadata)
+
+        # Get the logprobs query results.
+        prompt_logprobs, sample_logprobs = _get_logprobs(
+            logprobs, sampling_metadata, sample_results)
+
+        # now don't include the probs or logits in the built sampler outputs
+        return _build_sampler_output(sample_results, sampling_metadata,
+                                     prompt_logprobs, sample_logprobs, None, None)
+
+
 class Sampler(nn.Module):
     """Samples the next tokens from the model's outputs.
 
@@ -57,11 +103,12 @@ class Sampler(nn.Module):
     parameters (e.g., sampling method, temperature, top-p, top-k, etc.).
     """
 
-    def __init__(self, vocab_size: int, include_gpu_probs_tensor: bool = False) -> None:
+    def __init__(self, vocab_size: int, include_gpu_probs_tensor: bool = False, include_gpu_logits_tensor: bool = False) -> None:
         super().__init__()
         self.vocab_size = vocab_size
         self._copy_stream: torch.cuda.Stream = torch.cuda.Stream()
         self.include_gpu_probs_tensor = include_gpu_probs_tensor
+        self.include_gpu_logits_tensor = include_gpu_logits_tensor
 
     def forward(
         self,
@@ -78,6 +125,8 @@ class Sampler(nn.Module):
                              self.vocab_size)
 
         _, vocab_size = logits.shape
+
+        orig_logits = torch.clone(logits)
 
         # Apply logits processors (if any).
         logits = _apply_logits_processors(logits, sampling_metadata)
@@ -126,8 +175,11 @@ class Sampler(nn.Module):
         if not self.include_gpu_probs_tensor:
             probs = None
 
+        if not self.include_gpu_logits_tensor:
+            orig_logits = None
+
         return _build_sampler_output(sample_results, sampling_metadata,
-                                     prompt_logprobs, sample_logprobs, probs)
+                                     prompt_logprobs, sample_logprobs, probs, orig_logits)
 
 
 def _get_logits(hidden_states: torch.Tensor, embedding: torch.Tensor,
@@ -595,6 +647,7 @@ def _build_sampler_output(
     prompt_logprobs: List[Optional[PromptLogprobs]],
     sample_logprobs: List[SampleLogprobs],
     all_probs,
+    all_logits
 ) -> SamplerOutput:
     sampler_output = []
 
@@ -613,5 +666,5 @@ def _build_sampler_output(
         sampler_output.append(
             SequenceGroupOutput(seq_outputs, group_prompt_logprobs))
 
-    output = SamplerOutput(sampler_output, probs=all_probs)
+    output = SamplerOutput(sampler_output, probs=all_probs, logits=all_logits)
     return output

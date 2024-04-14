@@ -4,7 +4,7 @@ from functools import partial
 from typing import TYPE_CHECKING, Any, Iterable, List, Optional, Tuple, Union
 
 from vllm.config import (CacheConfig, ModelConfig, ParallelConfig,
-                         SchedulerConfig, MixtureConfig)
+                         SchedulerConfig, MixtureConfig, CoLLMConfig)
 from vllm.core.scheduler import Scheduler, SchedulerOutputs
 from vllm.engine.arg_utils import EngineArgs
 from vllm.engine.metrics import record_metrics
@@ -68,6 +68,7 @@ class LLMEngine:
         parallel_config: ParallelConfig,
         scheduler_config: SchedulerConfig,
         mixture_config: MixtureConfig,
+        collm_config: CoLLMConfig,
         distributed_init_method: str,
         placement_group: Optional["PlacementGroup"],
         log_stats: bool,
@@ -95,6 +96,7 @@ class LLMEngine:
         self.parallel_config = parallel_config
         self.scheduler_config = scheduler_config
         self.mixture_config = mixture_config
+        self.collm_config = collm_config
         self.log_stats = log_stats
         self._verify_args()
 
@@ -104,6 +106,8 @@ class LLMEngine:
             trust_remote_code=model_config.trust_remote_code,
             tokenizer_revision=model_config.tokenizer_revision,
             revision=model_config.revision)
+
+
         self.seq_counter = Counter()
 
         # Create the parallel GPU workers.
@@ -114,6 +118,7 @@ class LLMEngine:
 
         # Profile the memory usage and initialize the cache.
         self._init_cache()
+        print("past init cache")
 
         # Create the scheduler.
         self.scheduler = Scheduler(scheduler_config, cache_config)
@@ -133,8 +138,9 @@ class LLMEngine:
         # before CUDA_VISIBLE_DEVICES is set in the Worker
         from vllm.worker.worker import Worker  # pylint: disable=import-outside-toplevel
         from vllm.worker.mix_worker import LogitMixWorker  # pylint: disable=import-outside-toplevel
+        from vllm.worker.collm_worker import CoLLMWorker  # pylint: disable=import-outside-toplevel
 
-        if not self.mixture_config:
+        if not self.mixture_config and not self.collm_config:
             return Worker(
                 self.model_config,
                 self.parallel_config,
@@ -142,28 +148,50 @@ class LLMEngine:
                 rank,
                 distributed_init_method,
             )
+        elif self.mixture_config:
+            target_worker = Worker(
+                self.model_config,
+                self.parallel_config,
+                self.scheduler_config,
+                rank,
+                distributed_init_method,
+            )
 
-        target_worker = Worker(
-            self.model_config,
-            self.parallel_config,
-            self.scheduler_config,
-            rank,
-            distributed_init_method,
-        )
+            draft_worker = Worker(
+                self.mixture_config.mixin_model_config,
+                self.mixture_config.mixin_parallel_config,
+                self.scheduler_config,
+                rank,
+                distributed_init_method,
+                should_init_distributed=False
+            )
+            return LogitMixWorker.from_workers(
+                draft_worker,
+                target_worker,
+                mixture_coef=self.mixture_config.mixture_coef
+            )
+        else: # collm config
+            base_worker = Worker(
+                self.model_config,
+                self.parallel_config,
+                self.scheduler_config,
+                rank,
+                distributed_init_method,
+            )
+            asst_worker = Worker(
+                self.collm_config.asst_model_config,
+                self.collm_config.asst_parallel_config,
+                self.scheduler_config,
+                rank,
+                distributed_init_method,
+                should_init_distributed=False
+            )
+            return CoLLMWorker.from_workers(
+                base_worker,
+                asst_worker,
+                threshold=self.collm_config.threshold
+            )
 
-        draft_worker = Worker(
-            self.mixture_config.mixin_model_config,
-            self.mixture_config.mixin_parallel_config,
-            self.scheduler_config,
-            rank,
-            distributed_init_method,
-            should_init_distributed=False
-        )
-        return LogitMixWorker.from_workers(
-            draft_worker,
-            target_worker,
-            mixture_coef=self.mixture_config.mixture_coef
-        )
 
     def _init_workers(self, distributed_init_method: str):
         # Lazy import the Worker to avoid importing torch.cuda/xformers
@@ -794,5 +822,8 @@ class LLMEngine:
         # Make sure all workers have the same results.
         output = all_outputs[0]
         for other_output in all_outputs[1:]:
-            assert output == other_output
+            try:
+                assert output == other_output
+            except:
+                breakpoint()
         return output
