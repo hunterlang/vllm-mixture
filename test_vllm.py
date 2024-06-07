@@ -6,10 +6,10 @@ prompts = [
 sampling_params = SamplingParams(temperature=0., top_p=0.8, max_tokens=4096)
 
 base_model = "/localdata/hjl/Mistral-7B-v0.1~128bz~2e-5lr"
-asst_model = "mistralai/Mixtral-8x7B-v0.1"
+asst_model = "/localdata/hjl/Mistral-7B-v0.1~128bz~2e-5lr"
 
-#llm = LLM(model=base_model, mixin_model=asst_model, mixture_coef=0.1, tensor_parallel_size=2)
-llm = LLM(model=base_model, asst_model=asst_model, threshold=0.1, tensor_parallel_size=2)
+llm = LLM(model=base_model, mixin_model=asst_model, mixture_coef=0.1, tensor_parallel_size=1)
+#llm = LLM(model=base_model, asst_model=asst_model, threshold=0.1, tensor_parallel_size=2)
 outputs = llm.generate(prompts, sampling_params)
 
 # Print the outputs.

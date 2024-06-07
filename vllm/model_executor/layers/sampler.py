@@ -20,26 +20,33 @@ class MixtureSampler(nn.Module):
         self.mixture_coef = mixture_coef
     def forward(
             self,
-            probs1,
-            probs2,
+            logits1,
+            logits2,
             sampling_metadata: SamplingMetadata,
     ):
         with torch.cuda.stream(self._copy_stream):
             (sampling_tensors, do_penalties, do_top_p_top_k,
              do_min_p) = SamplingTensors.from_sampling_metadata(
-                 sampling_metadata, self.vocab_size, probs1.device, probs1.dtype)
+                 sampling_metadata, self.vocab_size, logits1.device, logits1.dtype)
 
-        probs = probs1 * (1-self.mixture_coef) + probs2 * self.mixture_coef
+        logits = logits1 + self.mixture_coef * logits2
+
+        logprobs = torch.log_softmax(logits, dim=-1, dtype=torch.float)
+        probs = torch.softmax(logits, dim=-1, dtype=torch.float)
+        
+        #probs = probs1 * (1-self.mixture_coef) + probs2 * self.mixture_coef
+
         logprobs = torch.log(probs) # might have numerical stab problems
 
         sample_results = _sample(probs, logprobs, sampling_metadata)
+
         # Get the logprobs query results.
         prompt_logprobs, sample_logprobs = _get_logprobs(
             logprobs, sampling_metadata, sample_results)
 
         # now don't include the probs in the built sampler outputs
         return _build_sampler_output(sample_results, sampling_metadata,
-                                     prompt_logprobs, sample_logprobs, None)
+                                     prompt_logprobs, sample_logprobs, None, None)
 
 
 class CoLLMSampler(nn.Module):
