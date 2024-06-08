@@ -302,6 +302,7 @@ class SamplingTensors:
     extra_seeds: Optional[torch.Tensor]
     prompt_tokens: torch.Tensor
     output_tokens: torch.Tensor
+    mixture_coefs: torch.Tensor
 
     @classmethod
     def from_sampling_metadata(
@@ -331,6 +332,7 @@ class SamplingTensors:
         sampling_seeds: List[int] = []
         sample_indices: List[int] = []
         prompt_best_of: List[int] = []
+        mixture_coefs: List[float] = []
         do_penalties = False
         do_top_p_top_k = False
         do_min_p = False
@@ -344,6 +346,7 @@ class SamplingTensors:
             seq_ids = seq_group.seq_ids
             sampling_params = seq_group.sampling_params
             temperature = sampling_params.temperature
+            mixture_coef = sampling_params.mixture_coef
             p = sampling_params.presence_penalty
             f = sampling_params.frequency_penalty
             r = sampling_params.repetition_penalty
@@ -380,6 +383,7 @@ class SamplingTensors:
                 assert query_len is not None
                 prefill_len = len(seq_group.prompt_logprob_indices)
                 temperatures += [temperature] * prefill_len
+                mixture_coefs += [mixture_coef] * prefill_len
                 top_ps += [top_p] * prefill_len
                 top_ks += [top_k] * prefill_len
                 min_ps += [min_p] * prefill_len
@@ -399,6 +403,7 @@ class SamplingTensors:
                         prompt_tokens.append(seq_data.prompt_token_ids)
                         output_tokens.append(seq_data.output_token_ids)
                 temperatures += [temperature] * len(seq_ids)
+                mixture_coefs += [mixture_coef] * len(seq_ids)
                 top_ps += [top_p] * len(seq_ids)
                 top_ks += [top_k] * len(seq_ids)
                 min_ps += [min_p] * len(seq_ids)
@@ -426,7 +431,7 @@ class SamplingTensors:
 
         sampling_tensors = SamplingTensors.from_lists(
             temperatures, top_ps, top_ks, min_ps, presence_penalties,
-            frequency_penalties, repetition_penalties, sampling_seeds,
+            frequency_penalties, repetition_penalties, mixture_coefs, sampling_seeds,
             sample_indices, prompt_tokens, output_tokens, vocab_size,
             extra_seeds_to_generate, device, dtype)
         return (sampling_tensors, do_penalties, do_top_p_top_k, do_min_p)
@@ -437,6 +442,7 @@ class SamplingTensors:
                    presence_penalties: List[float],
                    frequency_penalties: List[float],
                    repetition_penalties: List[float],
+                   mixture_coefs: List[float],
                    sampling_seeds: List[int], sample_indices: List[int],
                    prompt_tokens: List[List[int]],
                    output_tokens: List[List[int]], vocab_size: int,
@@ -468,6 +474,13 @@ class SamplingTensors:
             dtype=dtype,
             pin_memory=pin_memory,
         )
+        mixture_coefs_t = torch.tensor(
+            mixture_coefs,
+            device="cpu",
+            dtype=dtype,
+            pin_memory=pin_memory,
+        )
+
         top_ps_t = torch.tensor(
             top_ps,
             device="cpu",
@@ -560,6 +573,7 @@ class SamplingTensors:
 
         return cls(
             temperatures=temperatures_t.to(device=device, non_blocking=True),
+            mixture_coefs=mixture_coefs_t.to(device=device, non_blocking=True),
             top_ps=top_ps_t.to(device=device, non_blocking=True),
             top_ks=top_ks_t.to(device=device, non_blocking=True),
             min_ps=min_ps_t.to(device=device, non_blocking=True),

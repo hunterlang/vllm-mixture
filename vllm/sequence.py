@@ -785,6 +785,9 @@ class SamplerOutput:
     # On-device tensor containing the logprobs of each token.
     logprobs: Optional["torch.Tensor"] = None
 
+    # On-device tensor containing the logits of each token.
+    logits: Optional["torch.Tensor"] = None
+
     # On-device tensor containing the sampled token ids.
     sampled_token_ids: Optional[torch.Tensor] = None
 

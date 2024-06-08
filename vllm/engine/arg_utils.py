@@ -7,7 +7,7 @@ from typing import List, Optional, Tuple, Union
 
 from vllm.config import (CacheConfig, DecodingConfig, DeviceConfig,
                          EngineConfig, LoadConfig, LoRAConfig, ModelConfig,
-                         ParallelConfig, SchedulerConfig, SpeculativeConfig,
+                         ParallelConfig, SchedulerConfig, SpeculativeConfig, MixtureConfig,
                          TokenizerPoolConfig, VisionLanguageConfig)
 from vllm.model_executor.layers.quantization import QUANTIZATION_METHODS
 from vllm.utils import str_to_int_tuple
@@ -92,6 +92,7 @@ class EngineArgs:
     guided_decoding_backend: str = 'outlines'
     # Speculative decoding configuration.
     speculative_model: Optional[str] = None
+    mixin_model: Optional[str] = None
     num_speculative_tokens: Optional[int] = None
     speculative_max_model_len: Optional[int] = None
     speculative_disable_by_batch_size: Optional[int] = None
@@ -522,6 +523,13 @@ class EngineArgs:
             help=
             'The name of the draft model to be used in speculative decoding.')
         parser.add_argument(
+            '--mixin-model',
+            type=nullable_str,
+            default=EngineArgs.speculative_model,
+            help=
+            'The name of the model whose logits you want to mix in with your main model.')
+
+        parser.add_argument(
             '--num-speculative-tokens',
             type=int,
             default=EngineArgs.num_speculative_tokens,
@@ -678,6 +686,16 @@ class EngineArgs:
             ngram_prompt_lookup_min=self.ngram_prompt_lookup_min,
         )
 
+        mixture_config = MixtureConfig.maybe_create_mixture_config(
+            target_model_config=model_config,
+            target_parallel_config=parallel_config,
+            target_dtype=self.dtype,
+            speculative_model=self.mixin_model,
+            enable_chunked_prefill=self.enable_chunked_prefill,
+            use_v2_block_manager=self.use_v2_block_manager,
+        )
+
+
         scheduler_config = SchedulerConfig(
             max_num_batched_tokens=self.max_num_batched_tokens,
             max_num_seqs=self.max_num_seqs,
@@ -763,6 +781,7 @@ class EngineArgs:
                             lora_config=lora_config,
                             vision_language_config=vision_language_config,
                             speculative_config=speculative_config,
+                            mixture_config=mixture_config,
                             load_config=load_config,
                             decoding_config=decoding_config)
 

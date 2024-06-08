@@ -8,7 +8,7 @@ import torch.distributed
 
 from vllm.config import (CacheConfig, DeviceConfig, LoadConfig, LoRAConfig,
                          ModelConfig, ParallelConfig, SchedulerConfig,
-                         SpeculativeConfig, VisionLanguageConfig)
+                         SpeculativeConfig, MixtureConfig, VisionLanguageConfig)
 from vllm.distributed import (broadcast_tensor_dict,
                               ensure_model_parallel_initialized,
                               init_distributed_environment,
@@ -44,6 +44,7 @@ class Worker(WorkerBase):
         lora_config: Optional[LoRAConfig] = None,
         vision_language_config: Optional[VisionLanguageConfig] = None,
         speculative_config: Optional[SpeculativeConfig] = None,
+        mixture_config: Optional[MixtureConfig] = None,
         is_driver_worker: bool = False,
     ) -> None:
         self.model_config = model_config

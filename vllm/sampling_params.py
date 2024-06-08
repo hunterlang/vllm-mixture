@@ -57,6 +57,9 @@ class SamplingParams:
         temperature: Float that controls the randomness of the sampling. Lower
             values make the model more deterministic, while higher values make
             the model more random. Zero means greedy sampling.
+        mixture_coef: Float that controls how much to mix in the logits of the
+            mixin model during decoding. 0 = use base model, infty = greedy
+            decoding from the mixin model
         top_p: Float that controls the cumulative probability of the top tokens
             to consider. Must be in (0, 1]. Set to 1 to consider all tokens.
         top_k: Integer that controls the number of top tokens to consider. Set
@@ -129,6 +132,7 @@ class SamplingParams:
         min_tokens: int = 0,
         logprobs: Optional[int] = None,
         prompt_logprobs: Optional[int] = None,
+        mixture_coef: float = 0.0,
         detokenize: bool = True,
         skip_special_tokens: bool = True,
         spaces_between_special_tokens: bool = True,
@@ -141,6 +145,7 @@ class SamplingParams:
         self.frequency_penalty = frequency_penalty
         self.repetition_penalty = repetition_penalty
         self.temperature = temperature
+        self.mixture_coef = mixture_coef
         self.top_p = top_p
         self.top_k = top_k
         self.min_p = min_p

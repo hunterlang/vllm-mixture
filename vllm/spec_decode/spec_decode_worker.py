@@ -579,7 +579,7 @@ class SpecDecodeWorker(LoraNotSupportedWorkerBase):
 
     def get_cache_block_size_bytes(self):
         """Return the size of a cache block in bytes.
-        
+
         This function is only used to compose workers within a SpecDecodeWorker.
         We leave composing a SpecDecodeWorker within a SpecDecodeWorker
         undefined for now, although it could be implemented in the future.

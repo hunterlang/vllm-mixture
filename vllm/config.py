@@ -29,8 +29,8 @@ class ModelConfig:
 
     Args:
         model: Name or path of the huggingface model to use.
-            It is also used as the content for `model_name` tag in metrics 
-            output when `served_model_name` is not specified. 
+            It is also used as the content for `model_name` tag in metrics
+            output when `served_model_name` is not specified.
         tokenizer: Name or path of the huggingface tokenizer to use.
         tokenizer_mode: Tokenizer mode. "auto" will use the fast tokenizer if
             available, and "slow" will always use the slow tokenizer.
@@ -77,8 +77,8 @@ class ModelConfig:
         skip_tokenizer_init: If true, skip initialization of tokenizer and
             detokenizer.
         served_model_name: The model name used in metrics tag `model_name`,
-            matches the model name exposed via the APIs. If multiple model 
-            names provided, the first name will be used. If not specified, 
+            matches the model name exposed via the APIs. If multiple model
+            names provided, the first name will be used. If not specified,
             the model name will be the same as `model`.
     """
 
@@ -656,7 +656,7 @@ class SchedulerConfig:
         enable_chunked_prefill: If True, prefill requests can be chunked based
             on the remaining max_num_batched_tokens.
         embedding_mode: Whether the running model is for embedding.
-        preemption_mode: Whether to perform preemption by swapping or 
+        preemption_mode: Whether to perform preemption by swapping or
             recomputation. If not specified, we determine the mode as follows:
             We use recomputation by default since it incurs lower overhead than
             swapping. However, when the sequence group has multiple sequences
@@ -1023,6 +1023,144 @@ class SpeculativeConfig:
         return f"SpeculativeConfig({draft_model=}, {num_spec_tokens=})"
 
 
+
+class MixtureConfig:
+    """Configuration for mixing model logits.
+    Target model <-- the main one
+    Speculative model <-- the one whose logits you're mixing in
+    logits = target_logits + mixture_coef * speculative_logits
+    """
+
+    @staticmethod
+    def maybe_create_mixture_config(
+        target_model_config: ModelConfig,
+        target_parallel_config: ParallelConfig,
+        target_dtype: str,
+        speculative_model: Optional[str],
+        enable_chunked_prefill: bool,
+        use_v2_block_manager: bool,
+    ) -> Optional["MixtureConfig"]:
+        """Create a MixtureConfig if possible, else return None.
+
+        This function attempts to create a MixtureConfig object based on the
+        provided parameters. If the necessary conditions are met, it returns an
+        instance of MixtureConfig. Otherwise, it returns None.
+
+        Args:
+            target_model_config (ModelConfig): The configuration of the target
+                model.
+            target_parallel_config (ParallelConfig): The parallel configuration
+                for the target model.
+            target_dtype (str): The data type used for the target model.
+            speculative_model (Optional[str]): The name of the speculative
+                model, if provided.
+            enable_chunked_prefill (bool): Whether vLLM is configured to use
+                chunked prefill or not. Used for raising an error since its not
+                yet compatible with spec decode.
+            use_v2_block_manager (bool): Whether vLLM is configured to use the
+                v2 block manager or not. Used for raising an error since the v2
+                block manager is required with spec decode.
+
+        Returns:
+            Optional["MixtureConfig"]: An instance of  if
+                the necessary conditions are met, else None.
+        """
+
+        if speculative_model is None:
+            return None
+
+        if enable_chunked_prefill:
+            raise ValueError(
+                "Logit mixing and chunked prefill are "
+                f"currently mutually exclusive ({enable_chunked_prefill=}).")
+
+        """
+        if not use_v2_block_manager:
+            raise ValueError(
+                "Logit mixing requires usage of the V2 "
+                "block manager. Enable it with --use-v2-block-manager.")
+        """
+
+        # TODO: The user should be able to specify revision/quantization/max
+        # model len for the draft model. It is not currently supported.
+        draft_revision = None
+        draft_code_revision = None
+        draft_quantization = None
+
+        draft_model_config = ModelConfig(
+            model=speculative_model,
+            tokenizer=target_model_config.tokenizer,
+            tokenizer_mode=target_model_config.tokenizer_mode,
+            trust_remote_code=target_model_config.trust_remote_code,
+            dtype=target_model_config.dtype,
+            seed=target_model_config.seed,
+            revision=draft_revision,
+            code_revision=draft_code_revision,
+            tokenizer_revision=target_model_config.tokenizer_revision,
+            max_model_len=None,
+            quantization=draft_quantization,
+            enforce_eager=target_model_config.enforce_eager,
+            max_seq_len_to_capture=target_model_config.
+            max_seq_len_to_capture,
+            max_logprobs=target_model_config.max_logprobs,
+        )
+
+        draft_parallel_config = (
+            MixtureConfig.create_draft_parallel_config(
+                target_parallel_config))
+
+        return MixtureConfig(
+            draft_model_config,
+            draft_parallel_config,
+        )
+
+    @staticmethod
+    def create_draft_parallel_config(
+            target_parallel_config: ParallelConfig) -> ParallelConfig:
+        """Create a parallel config for use by the draft worker.
+
+        This is mostly a copy of the target parallel config. In the future the
+        draft worker can have a different parallel strategy, e.g. TP=1.
+        """
+        draft_parallel_config = ParallelConfig(
+            pipeline_parallel_size=target_parallel_config.
+            pipeline_parallel_size,
+            tensor_parallel_size=target_parallel_config.tensor_parallel_size,
+            distributed_executor_backend=target_parallel_config.
+            distributed_executor_backend,
+            max_parallel_loading_workers=target_parallel_config.
+            max_parallel_loading_workers,
+            disable_custom_all_reduce=target_parallel_config.
+            disable_custom_all_reduce,
+            tokenizer_pool_config=target_parallel_config.tokenizer_pool_config,
+            ray_workers_use_nsight=target_parallel_config.
+            ray_workers_use_nsight,
+            placement_group=target_parallel_config.placement_group,
+        )
+
+        return draft_parallel_config
+
+    def __init__(
+        self,
+        draft_model_config: ModelConfig,
+        draft_parallel_config: ParallelConfig,
+    ):
+        """Create a MixtureConfig object.
+
+        Args:
+            draft_model_config: ModelConfig for the draft model.
+            draft_parallel_config: ParallelConfig for the draft model.
+        """
+        self.draft_model_config = draft_model_config
+        self.draft_parallel_config = draft_parallel_config
+
+        self._verify_args()
+
+    def _verify_args(self) -> None:
+        if self.draft_model_config:
+            self.draft_model_config.verify_with_parallel_config(
+                self.draft_parallel_config)
+
 @dataclass
 class LoRAConfig:
     max_lora_rank: int
@@ -1123,7 +1261,7 @@ class VisionLanguageConfig:
     # VisionLanguageConfig class.
     def get_image_token_text(
             self, tokenizer: PreTrainedTokenizerBase) -> Tuple[str, str]:
-        """Get the image token placeholder text to be inserted into the 
+        """Get the image token placeholder text to be inserted into the
         text prompt and the string representation of the image token id.
         """
         image_token_str = tokenizer.decode(self.image_token_id)
@@ -1309,10 +1447,10 @@ def _get_and_verify_max_len(
 def get_served_model_name(model: str,
                           served_model_name: Optional[Union[str, List[str]]]):
     """
-    If the input is a non-empty list, the first model_name in 
-    `served_model_name` is taken. 
-    If the input is a non-empty string, it is used directly. 
-    For cases where the input is either an empty string or an 
+    If the input is a non-empty list, the first model_name in
+    `served_model_name` is taken.
+    If the input is a non-empty string, it is used directly.
+    For cases where the input is either an empty string or an
     empty list, the fallback is to use `self.model`.
     """
     if not served_model_name:
@@ -1352,6 +1490,7 @@ class EngineConfig:
     lora_config: Optional[LoRAConfig]
     vision_language_config: Optional[VisionLanguageConfig]
     speculative_config: Optional[SpeculativeConfig]
+    mixture_config: Optional[MixtureConfig]
     decoding_config: Optional[DecodingConfig]
 
     def __post_init__(self):

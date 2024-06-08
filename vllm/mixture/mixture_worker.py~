@@ -1,0 +1,54 @@
+from functools import cached_property
+from typing import Any, Dict, List, Optional, Tuple
+
+import torch
+
+from vllm.distributed.communication_op import broadcast_tensor_dict
+from vllm.logger import init_logger
+from vllm.model_executor.layers.rejection_sampler import RejectionSampler
+from vllm.sequence import (ExecuteModelRequest, SamplerOutput,
+                           SequenceGroupMetadata)
+from vllm.spec_decode.batch_expansion import BatchExpansionTop1Scorer
+from vllm.spec_decode.interfaces import (SpeculativeProposals,
+                                         SpeculativeScorer, SpeculativeScores)
+from vllm.spec_decode.metrics import AsyncMetricsCollector
+from vllm.spec_decode.multi_step_worker import MultiStepWorker
+from vllm.spec_decode.ngram_worker import NGramWorker
+from vllm.spec_decode.proposer_worker_base import ProposerWorkerBase
+from vllm.spec_decode.util import (create_sequence_group_output,
+                                   get_all_num_logprobs, get_all_seq_ids,
+                                   get_sampled_token_logprobs, nvtx_range,
+                                   split_batch_by_proposal_len)
+from vllm.worker.worker import Worker
+from vllm.worker.worker_base import LoraNotSupportedWorkerBase, WorkerBase
+
+logger = init_logger(__name__)
+
+
+def create_mix_worker(*args, **kwargs) -> "MixtureWorker":
+    """Helper method that is the entrypoint for Executors which use
+    WorkerWrapper. It constructs a MixtureWorker from the mixture config.
+    """
+    assert "mixture_config" in kwargs
+    mixture_config = kwargs.get("mixture_config")
+    assert mixture_config is not None
+
+    mixin_worker = Worker(*args, **kwargs)
+
+    base_worker_kwargs = kwargs.copy()
+    # Override draft-model specific worker args.
+    base_worker_kwargs.update(
+        model_config=mixture_config.base_model_config,
+        parallel_config=mixture_config.base_parallel_config,
+        # TODO allow base-model specific load config.
+        #load_config=load_config,
+    )
+
+    spec_decode_worker = SpecDecodeWorker.create_worker(
+        scorer_worker=target_worker,
+        base_worker_kwargs=base_worker_kwargs,
+        disable_by_batch_size=speculative_config.
+        speculative_disable_by_batch_size,
+    )
+
+    return spec_decode_worker

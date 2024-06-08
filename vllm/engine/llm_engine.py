@@ -9,7 +9,7 @@ from transformers import GenerationConfig, PreTrainedTokenizer
 import vllm
 from vllm.config import (CacheConfig, DecodingConfig, DeviceConfig, LoadConfig,
                          LoRAConfig, ModelConfig, ParallelConfig,
-                         SchedulerConfig, SpeculativeConfig,
+                         SchedulerConfig, SpeculativeConfig, MixtureConfig,
                          VisionLanguageConfig)
 from vllm.core.scheduler import (ScheduledSequenceGroup, Scheduler,
                                  SchedulerOutputs)
@@ -153,6 +153,7 @@ class LLMEngine:
         lora_config: Optional[LoRAConfig],
         vision_language_config: Optional[VisionLanguageConfig],
         speculative_config: Optional[SpeculativeConfig],
+        mixture_config: Optional[MixtureConfig],
         decoding_config: Optional[DecodingConfig],
         executor_class: Type[ExecutorBase],
         log_stats: bool,
@@ -202,6 +203,7 @@ class LLMEngine:
         self.vision_language_config = vision_language_config
         self.parallel_config = parallel_config
         self.scheduler_config = scheduler_config
+        self.mixture_config = mixture_config
         self.device_config = device_config
         self.speculative_config = speculative_config
         self.load_config = load_config
@@ -228,6 +230,7 @@ class LLMEngine:
             lora_config=lora_config,
             vision_language_config=vision_language_config,
             speculative_config=speculative_config,
+            mixture_config=mixture_config,
             load_config=load_config,
         )
 

@@ -45,6 +45,7 @@ class GPUExecutor(ExecutorBase):
             lora_config=self.lora_config,
             vision_language_config=self.vision_language_config,
             speculative_config=self.speculative_config,
+            mixture_config=self.mixture_config,
             is_driver_worker=rank == 0,
         )
 
@@ -53,12 +54,18 @@ class GPUExecutor(ExecutorBase):
                        rank: int = 0,
                        distributed_init_method: Optional[str] = None):
 
-        if self.speculative_config is None:
-            worker_module_name = "vllm.worker.worker"
-            worker_class_name = "Worker"
-        else:
+        if self.speculative_config is not None:
             worker_module_name = "vllm.spec_decode.spec_decode_worker"
             worker_class_name = "create_spec_worker"
+
+        elif self.mixture_config is not None:
+            worker_module_name = "vllm.mixture.mixture_worker"
+            worker_class_name = "create_mix_worker"
+
+        else:
+            worker_module_name = "vllm.worker.worker"
+            worker_class_name = "Worker"
+
 
         wrapper = WorkerWrapperBase(
             worker_module_name=worker_module_name,
