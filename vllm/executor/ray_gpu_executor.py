@@ -93,6 +93,11 @@ class RayGPUExecutor(DistributedGPUExecutor):
             if self.speculative_config is not None:
                 worker_module_name = "vllm.spec_decode.spec_decode_worker"
                 worker_class_name = "create_spec_worker"
+
+            elif self.mixture_config is not None:
+                worker_module_name = "vllm.mixture.mixture_worker"
+                worker_class_name = "create_mix_worker"
+
             else:
                 worker_module_name = "vllm.worker.worker"
                 worker_class_name = "Worker"

@@ -12,7 +12,7 @@ from vllm.sequence import (ExecuteModelRequest, SamplerOutput,
 from vllm.spec_decode.util import nvtx_range
 from vllm.worker.worker import Worker
 from vllm.worker.worker_base import LoraNotSupportedWorkerBase, WorkerBase
-
+from vllm.model_executor.sampling_metadata import SamplingMetadata
 logger = init_logger(__name__)
 
 
@@ -191,14 +191,27 @@ class MixtureWorker(LoraNotSupportedWorkerBase):
         """
         assert self.rank != self._driver_rank
 
-        data = broadcast_tensor_dict(src=self._driver_rank)
-        if not data:
-            return False
+        # calling the execute_model() on each of the workers
+        # in the driver process creates a cache message that we need to block on and apply
+        # in the same order as the models get executed
+        for worker in (self.proposer_worker, self.scorer_worker):
+            data = broadcast_tensor_dict(src=self._driver_rank)
+            if not data:
+                return False
 
+            assert(data['blocks_to_swap_in'] is not None)
+            num_seq_groups = data.get("num_seq_groups", 0)
+            blocks_to_swap_in = data.get("blocks_to_swap_in")
+            blocks_to_swap_out = data.get("blocks_to_swap_out")
+            blocks_to_copy = data.get("blocks_to_copy")
 
-        # todo hunter: is this right?
-        self.proposer_worker.execute_model()
-        self.scorer_worker.execute_model()
+            worker.cache_swap(blocks_to_swap_in, blocks_to_swap_out, blocks_to_copy)
+
+            # If there is no input, we don't need to execute the model.
+            if num_seq_groups == 0:
+                return False
+
+            worker.model_runner.execute_model(None, worker.gpu_cache)
         return True
 
     @nvtx_range("mixture_worker._run_logit_mix_step")
@@ -210,16 +223,24 @@ class MixtureWorker(LoraNotSupportedWorkerBase):
         sequence.
         """
 
-        scorer_sample_output = self.scorer_worker.execute_model(execute_model_req)[0]
         proposer_sample_output = self.proposer_worker.execute_model(execute_model_req)[0]
+        scorer_sample_output = self.scorer_worker.execute_model(execute_model_req)[0]
 
-        # recompute this...todo can i do this better?
+        # Clear device tensors from sampler output. This reduces communication
+        # overhead when the engine runs in a different process than the workers.
+        scorer_sample_output.probs = None
+        scorer_sample_output.sampled_tokens = None
+        scorer_sample_output.logprobs = None
+
+        proposer_sample_output.probs = None
+        proposer_sample_output.sampled_tokens = None
+        proposer_sample_output.logprobs = None
+
         seq_group_metadata_list = execute_model_req.seq_group_metadata_list
-        (_, _, _, sampling_metadata,
-         _, _, _) = self.proposer_worker.model_runner.prepare_input_tensors(seq_group_metadata_list)
 
         logits1 = scorer_sample_output.logits
         logits2 = proposer_sample_output.logits
+        sampling_metadata = scorer_sample_output.metadata
 
         output = self.mixture_sampler(logits1, logits2, sampling_metadata=sampling_metadata)
 

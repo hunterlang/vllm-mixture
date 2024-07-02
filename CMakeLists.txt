@@ -323,3 +323,5 @@ if(VLLM_GPU_LANG STREQUAL "CUDA" OR VLLM_GPU_LANG STREQUAL "HIP")
     add_dependencies(default _punica_C)
   endif()
 endif()
+
+set(CMAKE_CUDA_COMPILER "/usr/local/cuda/bin/nvcc")

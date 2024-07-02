@@ -13,6 +13,7 @@ from vllm.lora.request import LoRARequest
 from vllm.pooling_params import PoolingParams
 from vllm.sampling_params import SamplingParams
 
+
 if TYPE_CHECKING:
     from vllm.multimodal import MultiModalData
     from vllm.spec_decode.metrics import SpecDecodeWorkerMetrics
@@ -614,7 +615,7 @@ class SequenceGroupMetadata:
         state: Internal state tied to this sequence group.
         multi_modal_data: Multi modal data.
         encoder_seq_data: Optional sequence data for encoder prompt
-                          (SequenceGroup.encoder_seq). Should be None 
+                          (SequenceGroup.encoder_seq). Should be None
                           unless you are working with an encoder/decoder
                           model.
         cross_block_table: Optional cross-attention block table associated
@@ -787,6 +788,9 @@ class SamplerOutput:
 
     # On-device tensor containing the logits of each token.
     logits: Optional["torch.Tensor"] = None
+
+    # On-device tensor containing the logits of each token.
+    metadata: Optional["SamplingMetadata"] = None
 
     # On-device tensor containing the sampled token ids.
     sampled_token_ids: Optional[torch.Tensor] = None

@@ -39,10 +39,10 @@ class MixtureSampler(nn.Module):
         _, vocab_size = logits1.shape
 
         # Prepare sampling tensors with pinned memory to avoid blocking.
+
         (sampling_tensors, do_penalties, do_top_p_top_k,
          do_min_p) = SamplingTensors.from_sampling_metadata(
              sampling_metadata, vocab_size, logits1.device, logits1.dtype)
-
         mixture_coefs = sampling_tensors.mixture_coefs
 
         # todo: do this in-place
@@ -180,7 +180,7 @@ class Sampler(nn.Module):
         if self.include_gpu_probs_tensor:
             assert maybe_sampled_tokens_tensor is not None
             on_device_tensors = (probs, logprobs, maybe_sampled_tokens_tensor)
-        elif self.include_gpu_logits_tensor:
+        elif self.include_gpu_logits_tensor: # hunter hack
             on_device_tensors = (logits,)
         else:
             on_device_tensors = None
@@ -1120,7 +1120,8 @@ def _build_sampler_output(
         sampled_token_probs=sampled_token_probs,
         sampled_token_ids=sampled_token_ids,
         logprobs=logprobs_tensor,
-        logits=logits_tensor
+        logits=logits_tensor,
+        metadata=sampling_metadata
     )
 
 
